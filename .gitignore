@@ -1,0 +1,43 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# Packaging / build / tests
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pyre/
+.pytype/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Data / outputs
+capturas_quedas/
+datasets/
+
+# LaTeX artifacts
+*.aux
+*.log
+*.out
+*.pdf
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
