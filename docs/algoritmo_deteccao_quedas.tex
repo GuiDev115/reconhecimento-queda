@@ -1,0 +1,196 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{hyperref}
+\geometry{margin=2.5cm}
+
+\title{Descricao Tecnica do Algoritmo de Reconhecimento de Quedas}
+\author{Projeto Reconhecimento de Quedas}
+\date{14 de abril de 2026}
+
+\begin{document}
+\maketitle
+
+\section{Objetivo}
+Este documento descreve o funcionamento do algoritmo de ponta a ponta, explicando:
+\begin{itemize}
+    \item como o sistema processa as entradas dos sensores;
+    \item como decide entre \textbf{queda}, \textbf{instabilidade corporal} e \textbf{status normal};
+    \item como cada sinal da camera contribui para a saida final de reconhecimento.
+\end{itemize}
+
+\section{Arquitetura do Sistema}
+A aplicacao esta organizada em modulos no diretorio \texttt{src}:
+\begin{itemize}
+    \item \texttt{src/fall\_detection.py}: orquestracao principal;
+    \item \texttt{src/fall\_core/camera.py}: captura de video e profundidade;
+    \item \texttt{src/fall\_core/vision.py}: extracao de metricas de depth e esqueleto aproximado;
+    \item \texttt{src/fall\_core/processing.py}: regras de deteccao de queda e risco;
+    \item \texttt{src/fall\_core/state.py}: estado temporal;
+    \item \texttt{src/fall\_core/events.py}: registro em CSV, snapshot e alerta.
+\end{itemize}
+
+\section{Entradas dos Sensores}
+\subsection{Sensor RGB (color)}
+Fornece o frame de video em formato BGR para:
+\begin{itemize}
+    \item visualizacao e sobreposicao de HUD;
+    \item fallback de deteccao por pose 2D (MediaPipe), quando selecionado.
+\end{itemize}
+
+\subsection{Sensor de Profundidade (depth)}
+Fornece um mapa de profundidade por pixel ($z$), usado como entrada principal no modo depth/skeleton para:
+\begin{itemize}
+    \item segmentar o individuo no primeiro plano;
+    \item estimar caixa delimitadora do corpo;
+    \item calcular centro corporal, altura relativa e razao de aspecto;
+    \item estimar esqueleto simplificado (cabeca, quadril, pes) e angulo corporal.
+\end{itemize}
+
+\subsection{IMU da D435i (acelerometro e giroscopio)}
+A D435i possui IMU, porem no estado atual do codigo a IMU \textbf{nao e usada diretamente} na inferencia.
+Ela pode ser incorporada em evolucoes futuras para compensacao de vibracao da camera e fusao sensorial.
+
+\subsection{Quais sao os 4 modulos frontais do dispositivo}
+No uso pratico, muitos usuarios se referem a D435i como tendo ``4 cameras'' por causa dos 4 elementos opticos frontais visiveis.
+Tecnicamente, eles sao:
+\begin{itemize}
+    \item \textbf{Camera IR esquerda}: participa da estimativa estereoscopica de profundidade;
+    \item \textbf{Camera IR direita}: par estereo com a IR esquerda para calcular disparidade;
+    \item \textbf{Camera RGB}: gera imagem colorida para visualizacao e algoritmos baseados em cor/pose 2D;
+    \item \textbf{Projetor IR}: emite padrao infravermelho para melhorar textura da cena em superficies pobres de detalhe.
+\end{itemize}
+
+Importante: o projetor IR nao e uma camera de captura, mas faz parte do conjunto optico que melhora a qualidade do depth.
+
+\section{Pipeline de Processamento (fim a fim)}
+\subsection{1) Captura e alinhamento}
+No modo RealSense, o pipeline captura streams RGB e depth e alinha depth para o frame de cor.
+
+\subsection{2) Segmentacao do alvo humano}
+A segmentacao e baseada em faixa de profundidade valida e operacoes morfologicas.
+Em seguida, os contornos sao avaliados e o melhor alvo e escolhido por um escore area/profundidade.
+
+\subsection{3) Extracao de metricas geometricas}
+Do alvo principal, sao extraidas:
+\begin{itemize}
+    \item centro normalizado $(c_x, c_y)$;
+    \item altura relativa $h_r$ e largura relativa $w_r$;
+    \item razao de aspecto $AR = \frac{\text{largura}}{\text{altura}}$;
+    \item profundidade mediana do torso.
+\end{itemize}
+
+\subsection{4) Estimacao de esqueleto aproximado}
+A partir da mascara depth, o algoritmo estima:
+\begin{itemize}
+    \item cabeca: ponto mais superior;
+    \item pes: ponto mais inferior;
+    \item quadril: faixa central do corpo.
+\end{itemize}
+Com isso, calcula o angulo corporal em relacao a vertical:
+\[
+\theta = \arctan\left(\frac{|\Delta x|}{|\Delta y| + \epsilon}\right)
+\]
+quanto maior $\theta$, mais horizontal esta a postura.
+
+\subsection{5) Suavizacao temporal}
+Para reduzir ruido, o sistema aplica media movel exponencial (EMA):
+\[
+\hat{x}_t = \alpha x_t + (1-\alpha)\hat{x}_{t-1}
+\]
+com $\alpha = 0.35$ para sinais como centro de quadril, razao de aspecto e altura relativa.
+
+\subsection{6) Classificacao do estado}
+Por frame, o algoritmo gera um indicador de queda e um indicador de instabilidade.
+A decisao final considera persistencia temporal e cooldown de eventos.
+
+\section{Deteccao de Queda}
+A logica de queda exige combinacao de postura, posicao no quadro e dinamica temporal.
+
+\subsection{Condicoes principais}
+\begin{itemize}
+    \item \textbf{Postura deitada}: $AR$ alto ou angulo corporal elevado;
+    \item \textbf{Centro baixo}: quadril mais proximo do chao na imagem;
+    \item \textbf{Transicao de em pe}: historico recente de postura ereta;
+    \item \textbf{Evento dinamico}: queda de altura relativa ou velocidade vertical brusca.
+\end{itemize}
+
+Formalmente, por frame:
+\[
+\text{fall\_frame} = \text{lying}\ \land\ \text{low\_center}\ \land\ \text{transition\_from\_upright}\ \land\ (\text{height\_dropped}\ \lor\ \text{sudden\_drop})
+\]
+
+\subsection{Confirmacao temporal de queda}
+A queda so e confirmada apos acumulo de frames consecutivos de evidencias.
+Apos confirmacao:
+\begin{itemize}
+    \item registra no CSV;
+    \item salva snapshot;
+    \item dispara alerta (se habilitado);
+    \item aplica cooldown para evitar eventos duplicados imediatos.
+\end{itemize}
+
+\section{Deteccao de Instabilidade Corporal}
+Instabilidade nao e queda imediata; e um estado de risco observado por oscilacoes.
+
+\subsection{Metricas de risco}
+No modo depth/skeleton, o algoritmo calcula:
+\begin{itemize}
+    \item \textbf{sway lateral}: amplitude em $x$;
+    \item \textbf{velocidade lateral}: media de $|\Delta x|$;
+    \item \textbf{jitter de quadril}: desvio padrao do centro vertical do quadril;
+    \item \textbf{jitter angular}: desvio padrao do angulo corporal.
+\end{itemize}
+
+\subsection{Votacao multi-criterio}
+Cada metrica acima do limiar gera 1 voto. O frame e marcado como instavel quando ha pelo menos 2 votos e nao ha queda no mesmo instante.
+
+Depois, uma janela temporal de confirmacao exige repeticao em varios frames:
+\[
+\text{risk\_detected} = (\text{risk\_frames} \geq \text{risk\_confirm\_frames})
+\]
+
+\section{Reconhecimento de Status Normal}
+O status normal e emitido quando:
+\begin{itemize}
+    \item nao existe queda confirmada;
+    \item nao existe risco de instabilidade confirmado.
+\end{itemize}
+
+Logo, em termos logicos:
+\[
+\text{status\_normal} = \neg\text{fall\_detected} \land \neg\text{risk\_detected}
+\]
+
+\section{Mapa Entrada $\rightarrow$ Saida (consolidado)}
+Esta secao resume, sem repeticao, como cada entrada participa da decisao final:
+\begin{itemize}
+    \item \textbf{IR esquerda + IR direita}: geram a base de profundidade estereoscopica que alimenta segmentacao corporal, postura e dinamica vertical;
+    \item \textbf{Projetor IR}: melhora a confiabilidade do depth em cenas com baixa textura;
+    \item \textbf{RGB}: usado para visualizacao/HUD e fallback por pose 2D;
+    \item \textbf{IMU}: disponivel no hardware, ainda nao integrada ao classificador atual.
+\end{itemize}
+
+A partir dessas entradas, o sistema produz uma unica saida semantica por instante:
+\begin{itemize}
+    \item \textbf{Queda} (evento critico);
+    \item \textbf{Instabilidade} (risco sem queda confirmada);
+    \item \textbf{Normal} (ausencia de risco e queda).
+\end{itemize}
+
+\section{Registros e Evidencias}
+A cada queda confirmada, o sistema gera:
+\begin{itemize}
+    \item linha no arquivo \texttt{relatorio\_quedas.csv};
+    \item imagem em \texttt{capturas\_quedas/};
+    \item tentativa de notificacao externa por script.
+\end{itemize}
+
+\section{Conclusao}
+O algoritmo atual combina sinais geometricos de profundidade com memoria temporal para reconhecer estados de seguranca do individuo. O uso de depth torna a inferencia mais robusta que abordagens puramente RGB para cenarios de queda. A arquitetura modular permite evolucao para fusao com IMU/radar sem alterar o fluxo principal de decisao.
+
+\end{document}

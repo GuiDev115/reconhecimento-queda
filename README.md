@@ -24,9 +24,22 @@ pip install opencv-python numpy pyrealsense2
 pip install mediapipe
 ```
 
+## Estrutura do projeto
+```
+src/
+  fall_detection.py
+  fall_core/
+docs/
+  documento_realsense_quedas.md
+  relatorio_funcoes_fall_detection.md
+dataset_evaluator.py
+datasets/
+capturas_quedas/
+```
+
 ## Execução: detecção ao vivo
 ```bash
-python fall_detection.py
+python src/fall_detection.py
 ```
 - Pressione `q` para encerrar.
 - Por padrão o script usa `--camera-source auto` (tenta RealSense primeiro e faz fallback para webcam).
@@ -34,12 +47,12 @@ python fall_detection.py
 
 ### Usando a RealSense D415
 ```bash
-python fall_detection.py --camera-source realsense --detector skeleton --show-depth --show-mask
+python src/fall_detection.py --camera-source realsense --detector skeleton --show-depth --show-mask
 ```
 
 ### Usando webcam (forçando OpenCV)
 ```bash
-python fall_detection.py --camera-source webcam --camera-index 0 --detector mediapipe
+python src/fall_detection.py --camera-source webcam --camera-index 0 --detector mediapipe
 ```
 
 ### Parâmetros úteis
