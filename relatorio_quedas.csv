@@ -1,2 +1,6 @@
-Timestamp,ID_Queda,Detector,Centro_Y,Aspecto_Largura_Altura,Altura_Relativa,Margem_Frames,Profundidade_m
-2026-04-14 15:06:55.071,1,skeleton,0.8208,2.5116,0.3583,5,3.763
+Timestamp,ID_Queda,Detector,Centro_Y,Aspecto_Largura_Altura,Altura_Relativa,Margem_Frames,Profundidade_m,Snapshot_Path,Clip_Path
+2026-04-28 14:08:26.539,1,skeleton,0.8292,2.6076,0.3292,5,2.078,capturas_quedas/queda_20260428-140826-539521_1/snapshot.jpg,capturas_quedas/queda_20260428-140826-539521_1/clip_ultimos_5s.mp4
+2026-04-28 14:09:19.577,2,skeleton,0.8021,1.8264,0.3000,5,2.071,capturas_quedas/queda_20260428-140919-577201_2/snapshot.jpg,capturas_quedas/queda_20260428-140919-577201_2/clip_ultimos_5s.mp4
+2026-04-28 14:11:10.258,3,skeleton,0.8042,2.3309,0.2896,5,2.121,capturas_quedas/queda_20260428-141110-258034_3/snapshot.jpg,capturas_quedas/queda_20260428-141110-258034_3/clip_ultimos_5s.mp4
+2026-04-28 14:11:13.261,4,skeleton,0.7958,2.8725,0.3104,25,2.204,capturas_quedas/queda_20260428-141113-261502_4/snapshot.jpg,capturas_quedas/queda_20260428-141113-261502_4/clip_ultimos_5s.mp4
+2026-04-28 14:12:01.730,5,skeleton,0.8354,2.7658,0.3292,5,2.004,capturas_quedas/queda_20260428-141201-730572_5/snapshot.jpg,capturas_quedas/queda_20260428-141201-730572_5/clip_ultimos_5s.mp4

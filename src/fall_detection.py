@@ -1,5 +1,6 @@
 import os
 import time
+from collections import deque
 
 import cv2
 import numpy as np
@@ -19,7 +20,7 @@ except Exception as exc:
 
 from fall_core.args import parse_args
 from fall_core.camera import read_frame, release_capture, start_capture
-from fall_core.events import handle_confirmed_fall, initialize_csv
+from fall_core.events import handle_confirmed_fall, initialize_json
 from fall_core.processing import (
     build_hud_lines,
     process_depth_mode,
@@ -55,13 +56,19 @@ def main():
         pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     state = RuntimeState()
+    capture_fps = args.rs_fps if capture_ctx["mode"] == "realsense" else capture_ctx["cap"].get(cv2.CAP_PROP_FPS)
+    if not capture_fps or capture_fps <= 0:
+        capture_fps = 30.0
+
+    buffer_size = max(1, int(round(float(capture_fps) * args.fall_clip_seconds)))
+    frame_buffer = deque(maxlen=buffer_size)
 
     snapshot_dir = "capturas_quedas"
     os.makedirs(snapshot_dir, exist_ok=True)
 
     notifier_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "notificador-quedas", "send_alert.py"))
-    csv_filename = "relatorio_quedas.csv"
-    initialize_csv(csv_filename)
+    json_filename = "relatorio_quedas.json"
+    initialize_json(json_filename)
 
     print("Iniciando monitoramento de quedas. Pressione 'q' para sair.")
     print(f"Fonte de video ativa: {capture_ctx['mode']}")
@@ -73,6 +80,8 @@ def main():
             if not ret:
                 print("Nao foi possivel acessar a camera.")
                 break
+
+            frame_buffer.append(frame.copy())
 
             current_time = time.time()
 
@@ -99,8 +108,10 @@ def main():
                     frame=frame,
                     state=state,
                     detector_mode=detector_mode,
-                    csv_filename=csv_filename,
+                    json_filename=json_filename,
                     snapshot_dir=snapshot_dir,
+                    clip_frames=list(frame_buffer),
+                    clip_fps=capture_fps,
                     notifier_script=notifier_script,
                     disable_email_alert=args.disable_email_alert,
                     center_y=result["center_y"],

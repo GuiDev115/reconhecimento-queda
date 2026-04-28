@@ -1,6 +1,6 @@
 # Reconhecimento de Quedas
 
-Monitor de quedas em tempo real com Intel RealSense D415 (profundidade) e OpenCV, com captura automática de evidências (frames) e geração de relatórios CSV. Inclui também modo opcional com MediaPipe e um avaliador simples para testar a heurística em vídeos de dataset.
+Monitor de quedas em tempo real com Intel RealSense D415 (profundidade) e OpenCV, com captura automática de evidências (frames) e geração de relatórios JSON. Inclui também modo opcional com MediaPipe e um avaliador simples para testar a heurística em vídeos de dataset.
 
 ## Requisitos
 - Python 3.9+ (testado em Linux)
@@ -67,9 +67,10 @@ python src/fall_detection.py --camera-source webcam --camera-index 0 --detector 
 - `--depth-vertical-speed-threshold`, `--depth-upright-frames` (calibração temporal da queda)
 
 - Cada queda confirmada:
-  - É registrada no CSV `relatorio_quedas.csv` (timestamp, detector, métricas geométricas e profundidade).
+  - É registrada no JSON `relatorio_quedas.json` com `data`, `hora`, `caminho_imagem` e `score`.
   - No modo `skeleton`, a queda é inferida por esqueleto estimado no depth (cabeça, quadril, pés e ângulo corporal).
-  - Gera um frame salvo em `capturas_quedas/` com timestamp e ID da queda.
+  - Cria uma pasta de evento em `capturas_quedas/` com timestamp e ID da queda.
+  - Salva nessa pasta um frame (`snapshot.jpg`) e um clipe MP4 (`clip_ultimos_5s.mp4`) com os últimos 5 segundos.
 
 ## Avaliação com datasets
 Estrutura esperada de vídeos de teste:
@@ -86,8 +87,8 @@ python dataset_evaluator.py
 Um arquivo `relatorio_amostragem.csv` é gerado com os resultados.
 
 ## Saídas geradas
-- `relatorio_quedas.csv`: log das quedas detectadas em tempo real.
-- `capturas_quedas/`: frames JPG das quedas confirmadas.
+- `relatorio_quedas.json`: log JSON das quedas detectadas em tempo real para integração com outro microsserviço.
+- `capturas_quedas/`: pasta por evento contendo snapshot e clipe de 5 segundos.
 - `relatorio_amostragem.csv`: métricas do avaliador de vídeos.
 
 ## Problemas comuns

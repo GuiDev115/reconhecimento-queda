@@ -1,77 +1,93 @@
-import csv
+import json
 import os
-import subprocess
 from datetime import datetime
 
 import cv2
 import numpy as np
 
 
-def initialize_csv(csv_filename):
-    with open(csv_filename, mode="w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            [
-                "Timestamp",
-                "ID_Queda",
-                "Detector",
-                "Centro_Y",
-                "Aspecto_Largura_Altura",
-                "Altura_Relativa",
-                "Margem_Frames",
-                "Profundidade_m",
-            ]
-        )
+
+def initialize_json(json_filename):
+    with open(json_filename, mode="w", encoding="utf-8") as file:
+        json.dump([], file, ensure_ascii=False, indent=2)
+
+
+def save_clip(clip_frames, clip_path, clip_fps):
+    if not clip_frames:
+        return
+
+    height, width = clip_frames[0].shape[:2]
+    writer = cv2.VideoWriter(
+        clip_path,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        max(1.0, float(clip_fps)),
+        (width, height),
+    )
+    try:
+        for clip_frame in clip_frames:
+            writer.write(clip_frame)
+    finally:
+        writer.release()
+
+
+def append_json_event(json_filename, event_data):
+    if os.path.exists(json_filename):
+        try:
+            with open(json_filename, mode="r", encoding="utf-8") as file:
+                events = json.load(file)
+                if not isinstance(events, list):
+                    events = []
+        except json.JSONDecodeError:
+            events = []
+    else:
+        events = []
+
+    events.append(event_data)
+
+    with open(json_filename, mode="w", encoding="utf-8") as file:
+        json.dump(events, file, ensure_ascii=False, indent=2)
 
 
 def handle_confirmed_fall(
     frame,
     state,
     detector_mode,
-    csv_filename,
+    json_filename,
     snapshot_dir,
-    notifier_script,
-    disable_email_alert,
+    clip_frames,
+    clip_fps,
     center_y,
     aspect_ratio,
     height_ratio,
     person_depth_m,
+    notifier_script=None,
+    disable_email_alert=False,
 ):
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     file_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    snapshot_path = os.path.join(snapshot_dir, f"queda_{file_timestamp}_{state.fall_counter}.jpg")
+    fall_dir = os.path.join(snapshot_dir, f"queda_{file_timestamp}_{state.fall_counter}")
+    os.makedirs(fall_dir, exist_ok=True)
 
-    with open(csv_filename, mode="a", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            [
-                timestamp_str,
-                state.fall_counter,
-                detector_mode,
-                f"{center_y:.4f}" if not np.isnan(center_y) else "",
-                f"{aspect_ratio:.4f}" if not np.isnan(aspect_ratio) else "",
-                f"{height_ratio:.4f}" if not np.isnan(height_ratio) else "",
-                state.fall_frames,
-                f"{person_depth_m:.3f}" if not np.isnan(person_depth_m) else "",
-            ]
-        )
+    snapshot_path = os.path.join(fall_dir, "snapshot.jpg")
+    clip_path = os.path.join(fall_dir, "clip_ultimos_5s.mp4")
+
+    append_json_event(
+        json_filename,
+        {
+            "data": datetime.now().strftime("%Y-%m-%d"),
+            "hora": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+            "caminho_imagem": snapshot_path,
+            "score": True,
+        },
+    )
 
     cv2.imwrite(snapshot_path, frame)
+    save_clip(clip_frames, clip_path, clip_fps)
 
-    if not disable_email_alert and os.path.exists(notifier_script):
-        try:
-            subprocess.run(
-                [
-                    "python",
-                    notifier_script,
-                    "--image",
-                    snapshot_path,
-                    "--subject",
-                    "Queda detectada",
-                    "--body",
-                    "Foi detectada uma queda. Verifique o idoso.",
-                ],
-                check=True,
-            )
-        except Exception as exc:
-            print(f"Falha ao enviar alerta: {exc}")
+    return {
+        "snapshot_path": snapshot_path,
+        "clip_path": clip_path,
+        "fall_dir": fall_dir,
+        "timestamp": timestamp_str,
+        "fall_id": state.fall_counter,
+    }

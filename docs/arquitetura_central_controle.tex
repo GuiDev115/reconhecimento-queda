@@ -1,0 +1,209 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+
+\geometry{margin=2.5cm}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    urlcolor=blue!60!black,
+    citecolor=blue!50!black,
+    pdftitle={Arquitetura Integrada de Deteccao de Queda com Central de Controle},
+    pdfauthor={Equipe Inovacao UFLA}
+}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{220,220,220}
+
+\lstdefinestyle{py}{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue!60!black},
+    commentstyle=\color{gray!80!black},
+    stringstyle=\color{teal!50!black},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{codeframe},
+    backgroundcolor=\color{codebg},
+    tabsize=4
+}
+
+\title{Arquitetura Integrada para Deteccao de Quedas\\\large Detection $\rightarrow$ Control Center $\rightarrow$ Notifier}
+\author{Equipe Inovacao UFLA}
+\date{14 de abril de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este documento descreve a arquitetura integrada entre os projetos de reconhecimento de queda e notificacao, com uma camada intermediaria de decisao chamada \textbf{Central de Controle}. O objetivo principal e padronizar o fluxo de eventos e facilitar a extensao por novos metodos de entrada (novos sensores, novos algoritmos e novas fontes de evento), sem acoplar essas evolucoes ao modulo de notificacao.
+\end{abstract}
+
+\section{Visao Geral}
+A arquitetura foi separada em tres responsabilidades:
+\begin{enumerate}
+    \item \textbf{Detection}: identifica eventos no dominio de entrada (queda, risco, etc.).
+    \item \textbf{Control Center}: decide se um comando deve ser acionado, com politicas e cooldown.
+    \item \textbf{Notifier}: executa o comando de notificacao para os canais externos.
+\end{enumerate}
+
+\subsection*{Fluxo principal}
+\begin{center}
+\fbox{\parbox{0.9\linewidth}{
+\centering
+\textbf{Detector de Entrada} $\Rightarrow$ \textbf{Evento Padronizado} $\Rightarrow$ \textbf{Central de Controle} $\Rightarrow$ \textbf{Comando de Notificacao} $\Rightarrow$ \textbf{Email/Telegram}
+}}
+\end{center}
+
+\section{Estrutura dos Projetos}
+\begin{itemize}
+    \item \texttt{reconhecimento-queda/}: produtor de eventos de queda.
+    \item \texttt{central-controle/}: modulo compartilhado de decisao e roteamento de comando.
+    \item \texttt{notificador-quedas/}: envio de alertas para canais externos.
+\end{itemize}
+
+\section{Contrato de Evento}
+Para permitir que outros colegas implementem novos metodos de input, a integracao usa um contrato simples de evento:
+
+\begin{itemize}
+    \item \texttt{event\_type}: tipo semantico do evento (ex.: \texttt{fall\_confirmed}).
+    \item \texttt{source}: origem tecnica (ex.: \texttt{fall\_detection:skeleton}).
+    \item \texttt{payload}: dados da ocorrencia (metadados e evidencias).
+    \item \texttt{timestamp}: instante de geracao.
+\end{itemize}
+
+\subsection*{Exemplo de evento de queda}
+\begin{lstlisting}[style=py]
+ControlEvent(
+    event_type="fall_confirmed",
+    source="fall_detection:skeleton",
+    payload={
+        "subject": "Queda detectada",
+        "body": "Foi detectada uma queda. Verifique o idoso.",
+        "media_path": "capturas_quedas/queda_20260414-110101-123_4.jpg",
+        "fall_id": 4,
+        "detector": "skeleton",
+        "confidence": 1.0,
+        "min_confidence": 0.5,
+    }
+)
+\end{lstlisting}
+
+\section{Decisao na Central de Controle}
+A Central de Controle recebe eventos e aplica politicas por tipo. No caso atual:
+
+\begin{itemize}
+    \item policy registrada para \texttt{fall\_confirmed};
+    \item validacao de confianca minima;
+    \item validacao de cooldown por comando (anti-disparo repetido).
+\end{itemize}
+
+Decisao simplificada:
+\[
+\text{disparar} = (\text{confidence} \ge \text{min\_confidence}) \land (\Delta t \ge \text{cooldown})
+\]
+
+\section{Saidas e Evidencias}
+Quando uma queda e confirmada no detector:
+\begin{enumerate}
+    \item o detector registra no CSV;
+    \item o detector salva snapshot em \texttt{capturas\_quedas/};
+    \item o detector publica evento para a central;
+    \item a central decide e, se aprovado, aciona o notificador.
+\end{enumerate}
+
+\section{Guia para Novos Metodos de Input}
+Esta secao e o ponto principal para onboarding de colegas.
+
+\subsection{Passo 1: Criar um produtor de evento}
+Qualquer novo metodo (radar, IMU, audio, rede, regra clinica, modelo IA) deve produzir \texttt{ControlEvent}.
+
+\subsection{Passo 2: Definir novo \texttt{event\_type}}
+Exemplos:
+\begin{itemize}
+    \item \texttt{fall\_confirmed} (ja implementado)
+    \item \texttt{prolonged\_inactivity}
+    \item \texttt{abnormal\_gait}
+    \item \texttt{manual\_panic\_button}
+\end{itemize}
+
+\subsection{Passo 3: Registrar policy para o novo tipo}
+\begin{lstlisting}[style=py]
+def prolonged_inactivity_policy(event: ControlEvent) -> ControlDecision:
+    inactivity_seconds = float(event.payload.get("inactivity_seconds", 0))
+    if inactivity_seconds < 120:
+        return ControlDecision(False, "inatividade abaixo do limiar", command="notify_inactivity")
+
+    return ControlDecision(True, "inatividade prolongada", command="notify_inactivity")
+
+control_center.register_policy("prolonged_inactivity", prolonged_inactivity_policy)
+\end{lstlisting}
+
+\subsection{Passo 4: Reusar ou trocar gateway de saida}
+Hoje e usado \texttt{SubprocessNotificationGateway} para chamar o notificador existente. No futuro, pode-se implementar outro gateway:
+\begin{itemize}
+    \item fila RabbitMQ/Kafka,
+    \item API HTTP,
+    \item log estruturado para SOC/NOC,
+    \item integracao hospitalar (HL7/FHIR).
+\end{itemize}
+
+\section{Tabela de Responsabilidades}
+\begin{center}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.22\linewidth} >{\raggedright\arraybackslash}p{0.33\linewidth} >{\raggedright\arraybackslash}p{0.35\linewidth}}
+\toprule
+\textbf{Camada} & \textbf{Responsabilidade} & \textbf{Nao deve fazer} \\
+\midrule
+Detection & Detectar condicao de entrada e publicar evento & Enviar notificacao diretamente ao usuario final \\
+Control Center & Aplicar regras de negocio, politica e cooldown & Conhecer detalhes internos de captura de camera \\
+Notifier & Entregar mensagens para canais externos & Decidir regras clinicas ou logica de deteccao \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Checklists para Implementacao}
+\subsection*{Checklist de um novo input}
+\begin{itemize}
+    \item[ ] Definir novo \texttt{event\_type} e schema minimo de payload.
+    \item[ ] Garantir envio de \texttt{source} identificavel e \texttt{timestamp}.
+    \item[ ] Implementar policy e registrar na central.
+    \item[ ] Testar casos: abaixo do limiar, acima do limiar, cooldown ativo.
+    \item[ ] Validar comportamento com notificacao habilitada e desabilitada.
+\end{itemize}
+
+\subsection*{Checklist de qualidade para PR}
+\begin{itemize}
+    \item[ ] Nao quebrar contrato de evento existente.
+    \item[ ] Evitar acoplamento do detector ao notificador.
+    \item[ ] Mensagens de decisao claras para observabilidade.
+    \item[ ] Documentar novo input neste documento.
+\end{itemize}
+
+\section{Execucao e Setup Recomendado}
+No ambiente de desenvolvimento:
+\begin{lstlisting}[style=py]
+# na pasta central-controle
+pip install -e .
+
+# na pasta reconhecimento-queda
+python src/fall_detection.py
+\end{lstlisting}
+
+No ambiente de producao, o recomendado e instalar \texttt{central-controle} como dependencia de versao fixa para evitar divergencias de API entre equipes.
+
+\section{Conclusao}
+A separacao em camadas cria uma base estavel para crescimento do sistema: novos metodos de input podem ser adicionados sem alterar o modulo de notificacao e sem reescrever a logica central de decisao. Com isso, o projeto fica mais colaborativo, escalavel e sustentavel para evolucao por multiplas equipes.
+
+\end{document}
