@@ -51,6 +51,16 @@ def depth_person_metrics(depth_frame, depth_scale):
         if area < (h * w * 0.01):
             continue
         x, y, bw, bh = cv2.boundingRect(cnt)
+
+        # Rejeita objetos muito mais largos que altos (não são pessoas em pé)
+        if bw > bh:
+            continue
+
+        # Rejeita objetos esparsos como cadeiras/móveis (baixa densidade de pixels na bbox)
+        fill_ratio = float(np.count_nonzero(mask[y:y + bh, x:x + bw])) / max(float(bw * bh), 1.0)
+        if fill_ratio < 0.30:
+            continue
+
         roi = depth_m[y:y + bh, x:x + bw]
         roi_valid = roi[(roi > 0.35) & (roi < 4.0)]
         if roi_valid.size == 0:
