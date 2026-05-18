@@ -177,7 +177,13 @@ def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2, imu_da
 
     height_dropped = not np.isnan(height_ratio_vs_standing) and (height_ratio_vs_standing < args.depth_height_drop_ratio)
 
-    is_falling_this_frame = lying_posture and low_center and transition_from_upright and (height_dropped or sudden_drop)
+    strong_lying_posture = (current_aspect > (args.depth_aspect_threshold + 0.25)) or (
+        not np.isnan(angle_deg) and angle_deg > 70.0
+    )
+    core_fall_evidence = lying_posture and low_center and (height_dropped or sudden_drop)
+    allow_without_upright = strong_lying_posture and (height_dropped or sudden_drop)
+
+    is_falling_this_frame = core_fall_evidence and (transition_from_upright or allow_without_upright)
 
     cv2.rectangle(frame, (x, y), (x + bw, y + bh), (255, 255, 0), 2)
     cv2.putText(

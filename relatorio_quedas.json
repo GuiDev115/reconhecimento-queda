@@ -1,32 +1,38 @@
 [
   {
-    "data": "2026-04-28",
-    "hora": "14:08:26.539",
-    "caminho_imagem": "capturas_quedas/queda_20260428-140826-539521_1/snapshot.jpg",
+    "data": "2026-05-18",
+    "hora": "12:41:47.620",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124147-620609_1/snapshot.jpg",
     "score": true
   },
   {
-    "data": "2026-04-28",
-    "hora": "14:09:19.577",
-    "caminho_imagem": "capturas_quedas/queda_20260428-140919-577201_2/snapshot.jpg",
+    "data": "2026-05-18",
+    "hora": "12:41:50.619",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124150-619155_2/snapshot.jpg",
     "score": true
   },
   {
-    "data": "2026-04-28",
-    "hora": "14:11:10.258",
-    "caminho_imagem": "capturas_quedas/queda_20260428-141110-258034_3/snapshot.jpg",
+    "data": "2026-05-18",
+    "hora": "12:41:53.626",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124153-626282_3/snapshot.jpg",
     "score": true
   },
   {
-    "data": "2026-04-28",
-    "hora": "14:11:13.261",
-    "caminho_imagem": "capturas_quedas/queda_20260428-141113-261502_4/snapshot.jpg",
+    "data": "2026-05-18",
+    "hora": "12:42:05.260",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124205-259998_4/snapshot.jpg",
     "score": true
   },
   {
-    "data": "2026-04-28",
-    "hora": "14:12:01.730",
-    "caminho_imagem": "capturas_quedas/queda_20260428-141201-730572_5/snapshot.jpg",
+    "data": "2026-05-18",
+    "hora": "12:42:08.261",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124208-261313_5/snapshot.jpg",
+    "score": true
+  },
+  {
+    "data": "2026-05-18",
+    "hora": "12:42:17.940",
+    "caminho_imagem": "capturas_quedas/queda_20260518-124217-939887_6/snapshot.jpg",
     "score": true
   }
 ]
