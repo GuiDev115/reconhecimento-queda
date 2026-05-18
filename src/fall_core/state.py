@@ -48,3 +48,8 @@ class RuntimeState:
 
     # Referência 3D (altura real em metros via intrínsecas)
     standing_height_m: Optional[float] = None
+
+    # Subtração de fundo
+    bg_frames: list = field(default_factory=list)
+    bg_depth_m: Optional[np.ndarray] = None
+    bg_calibrated: bool = False

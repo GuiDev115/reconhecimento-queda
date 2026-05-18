@@ -24,7 +24,13 @@ def ema(previous_value, current_value, alpha=0.35):
     return float((alpha * current_value) + ((1.0 - alpha) * previous_value))
 
 
-def depth_person_metrics(depth_frame, depth_scale):
+def build_background_model(frames_list, depth_scale):
+    """Calcula o modelo de fundo como mediana de frames de profundidade acumulados."""
+    stack = np.stack(frames_list, axis=0).astype(np.float32) * depth_scale
+    return np.median(stack, axis=0).astype(np.float32)
+
+
+def depth_person_metrics(depth_frame, depth_scale, bg_depth_m=None, fg_threshold_m=0.15):
     depth_raw = np.asanyarray(depth_frame.get_data())
     depth_m = depth_raw.astype(np.float32) * depth_scale
 
@@ -32,9 +38,16 @@ def depth_person_metrics(depth_frame, depth_scale):
     if np.count_nonzero(valid_depth) < 400:
         return None, np.zeros_like(depth_raw, dtype=np.uint8)
 
-    near_depth = float(np.percentile(depth_m[valid_depth], 15))
-    far_depth = min(near_depth + 1.0, 4.0)
-    mask = ((depth_m >= max(0.35, near_depth - 0.05)) & (depth_m <= far_depth)).astype(np.uint8) * 255
+    if bg_depth_m is not None:
+        # Primeiro plano: pixels que diferem do fundo por mais que o limiar
+        diff = np.abs(depth_m - bg_depth_m)
+        mask = ((diff > fg_threshold_m) & valid_depth).astype(np.uint8) * 255
+        if np.count_nonzero(mask) < 400:
+            return None, mask
+    else:
+        near_depth = float(np.percentile(depth_m[valid_depth], 15))
+        far_depth = min(near_depth + 1.0, 4.0)
+        mask = ((depth_m >= max(0.35, near_depth - 0.05)) & (depth_m <= far_depth)).astype(np.uint8) * 255
 
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, DEPTH_MORPH_KERNEL)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, DEPTH_MORPH_KERNEL)
@@ -51,10 +64,6 @@ def depth_person_metrics(depth_frame, depth_scale):
         if area < (h * w * 0.01):
             continue
         x, y, bw, bh = cv2.boundingRect(cnt)
-
-        # Rejeita objetos muito mais largos que altos (não são pessoas em pé)
-        if bw > bh:
-            continue
 
         # Rejeita objetos esparsos como cadeiras/móveis (baixa densidade de pixels na bbox)
         fill_ratio = float(np.count_nonzero(mask[y:y + bh, x:x + bw])) / max(float(bw * bh), 1.0)

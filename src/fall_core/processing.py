@@ -1,6 +1,6 @@
 import numpy as np
 
-from fall_core.vision import compute_camera_orientation, depth_person_metrics, ema, estimate_depth_skeleton
+from fall_core.vision import build_background_model, compute_camera_orientation, depth_person_metrics, ema, estimate_depth_skeleton
 
 
 def resolve_detector_mode(args, capture_mode):
@@ -58,7 +58,22 @@ def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2, imu_da
             state.camera_moving = False
         return _empty
 
-    metrics, depth_mask = depth_person_metrics(depth_frame, depth_scale)
+    # Calibração do modelo de fundo
+    if not state.bg_calibrated:
+        depth_raw = np.asanyarray(depth_frame.get_data())
+        state.bg_frames.append(depth_raw.copy())
+        if len(state.bg_frames) >= args.bg_calibration_frames:
+            state.bg_depth_m = build_background_model(state.bg_frames, depth_scale)
+            state.bg_frames.clear()
+            state.bg_calibrated = True
+            print("Fundo calibrado. Deteccao ativa.")
+        return _empty
+
+    metrics, depth_mask = depth_person_metrics(
+        depth_frame, depth_scale,
+        bg_depth_m=state.bg_depth_m,
+        fg_threshold_m=args.bg_fg_threshold,
+    )
     if metrics is None:
         return {**_empty, "depth_mask": depth_mask}
 
@@ -81,6 +96,12 @@ def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2, imu_da
         intrinsics=intrinsics,
         camera_pitch_deg=state.camera_pitch_deg,
     )
+
+    # Rejeita detecções com altura 3D fora da faixa humana (porta, parede, móvel grande)
+    if skeleton is not None and skeleton["height_m"] is not None:
+        if not (0.5 <= skeleton["height_m"] <= 2.25):
+            return {**_empty, "depth_mask": depth_mask}
+
     angle_deg = np.nan
     hip_center_y = center_y
     if skeleton is not None:

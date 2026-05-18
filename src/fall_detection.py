@@ -77,9 +77,10 @@ def main():
     json_filename = "relatorio_quedas.json"
     initialize_json(json_filename)
 
-    print("Iniciando monitoramento de quedas. Pressione 'q' para sair.")
+    print("Iniciando monitoramento de quedas. Pressione 'q' para sair, 'b' para recalibrar fundo.")
     print(f"Fonte de video ativa: {capture_ctx['mode']}")
     print(f"Detector ativo: {detector_mode}")
+    print(f"Calibrando fundo ({args.bg_calibration_frames} frames) — afaste-se da camera...")
 
     try:
         while True:
@@ -145,6 +146,18 @@ def main():
             )
             draw_hud_text(frame, hud_lines, x=40, y=40, line_height=32)
 
+            if not state.bg_calibrated:
+                target = args.bg_calibration_frames
+                done = len(state.bg_frames)
+                pct = int(done * 100 / max(target, 1))
+                bar_w, bar_h = 320, 22
+                cx0, cy0 = 40, frame.shape[0] // 2 - 50
+                cv2.rectangle(frame, (cx0, cy0), (cx0 + bar_w, cy0 + bar_h), (40, 40, 40), -1)
+                cv2.rectangle(frame, (cx0, cy0), (cx0 + int(bar_w * done / max(target, 1)), cy0 + bar_h), (0, 200, 255), -1)
+                cv2.rectangle(frame, (cx0, cy0), (cx0 + bar_w, cy0 + bar_h), (0, 200, 255), 1)
+                cv2.putText(frame, f"Calibrando fundo: {pct}%  — afaste-se da camera",
+                            (cx0, cy0 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 200, 255), 2, cv2.LINE_AA)
+
             cv2.imshow("Monitoramento de Queda", frame)
 
             if args.show_depth and depth_frame is not None:
@@ -155,8 +168,14 @@ def main():
             if args.show_mask and result["depth_mask"] is not None:
                 cv2.imshow("Mascara Depth", result["depth_mask"])
 
-            if cv2.waitKey(10) & 0xFF == ord("q"):
+            key = cv2.waitKey(10) & 0xFF
+            if key == ord("q"):
                 break
+            elif key == ord("b"):
+                state.bg_calibrated = False
+                state.bg_depth_m = None
+                state.bg_frames.clear()
+                print("Recalibrando fundo. Afaste-se da camera.")
     finally:
         release_capture(capture_ctx)
         if pose is not None:

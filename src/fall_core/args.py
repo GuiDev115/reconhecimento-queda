@@ -39,4 +39,6 @@ def parse_args():
     parser.add_argument("--fall-clip-seconds", type=float, default=5.0, help="Duracao do clipe (em segundos) salvo ao confirmar uma queda.")
     parser.add_argument("--disable-imu", action="store_true", help="Desativa leitura do IMU da RealSense (acelerometro/giroscopio).")
     parser.add_argument("--imu-gyro-threshold", type=float, default=0.08, help="Magnitude minima do giroscopio (rad/s) para considerar camera em movimento.")
+    parser.add_argument("--bg-calibration-frames", type=int, default=60, help="Frames para calibrar o modelo de fundo (subtracao de fundo). Default: 60 (~2s).")
+    parser.add_argument("--bg-fg-threshold", type=float, default=0.15, help="Diferenca minima de profundidade (metros) para considerar pixel como primeiro plano.")
     return parser.parse_args()
