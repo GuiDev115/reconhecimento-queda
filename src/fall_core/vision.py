@@ -88,7 +88,26 @@ def depth_person_metrics(depth_frame, depth_scale):
     return metrics, mask
 
 
-def estimate_depth_skeleton(metrics, mask):
+def compute_camera_orientation(accel_smooth):
+    """Calcula pitch e roll da câmera a partir do vetor de gravidade medido pelo acelerômetro.
+
+    Convenção de eixos RealSense: Z aponta para a cena, Y aponta para baixo, X aponta para direita.
+    Quando a câmera está nivelada e horizontal: accel ≈ [0, +g, 0].
+    """
+    ax, ay, az = float(accel_smooth[0]), float(accel_smooth[1]), float(accel_smooth[2])
+    pitch_rad = np.arctan2(-az, ay)   # inclina para frente/trás (em torno de X)
+    roll_rad  = np.arctan2( ax, ay)   # tomba para esquerda/direita (em torno de Z)
+    return float(np.degrees(pitch_rad)), float(np.degrees(roll_rad))
+
+
+def deproject_pixel(px, py, depth_m, intrinsics):
+    """Converte um pixel + profundidade em ponto 3D (metros) usando modelo pinhole."""
+    x = (px - intrinsics["ppx"]) * depth_m / intrinsics["fx"]
+    y = (py - intrinsics["ppy"]) * depth_m / intrinsics["fy"]
+    return np.array([x, y, depth_m], dtype=np.float32)
+
+
+def estimate_depth_skeleton(metrics, mask, depth_frame=None, intrinsics=None, camera_pitch_deg=0.0):
     x, y, bw, bh = metrics["bbox"]
     roi = mask[y:y + bh, x:x + bw]
     points = np.column_stack(np.where(roi > 0))
@@ -118,9 +137,47 @@ def estimate_depth_skeleton(metrics, mask):
     dy = float(foot[1] - head[1])
     angle_from_vertical_deg = np.degrees(np.arctan2(abs(dx), abs(dy) + 1e-6))
 
-    return {
+    # Ângulo corrigido pelo pitch da câmera (compensa inclinação da montagem)
+    angle_corrected_deg = float(angle_from_vertical_deg) - camera_pitch_deg
+
+    result = {
         "head": head,
         "hip": hip,
         "foot": foot,
         "angle_deg": float(angle_from_vertical_deg),
+        "angle_corrected_deg": float(angle_corrected_deg),
+        "height_m": None,
+        "head_3d": None,
+        "foot_3d": None,
     }
+
+    # Deprojection 3D quando intrínsecas disponíveis
+    if intrinsics is not None and depth_frame is not None:
+        try:
+            depth_raw = np.asanyarray(depth_frame.get_data())
+            depth_scale = metrics.get("depth_scale", None)
+
+            def _sample_depth(px, py):
+                h, w = depth_raw.shape
+                r = max(0, min(int(py), h - 1))
+                c = max(0, min(int(px), w - 1))
+                roi_s = depth_raw[max(0, r-2):r+3, max(0, c-2):c+3].astype(np.float32)
+                valid = roi_s[roi_s > 0]
+                return float(np.median(valid)) if valid.size > 0 else 0.0
+
+            # depth_raw está em unidades do sensor; precisa do depth_scale (passado via metrics)
+            ds = metrics.get("depth_scale", 0.001)
+            head_d = _sample_depth(head[0], head[1]) * ds
+            foot_d = _sample_depth(foot[0], foot[1]) * ds
+
+            if head_d > 0.1 and foot_d > 0.1:
+                head_3d = deproject_pixel(head[0], head[1], head_d, intrinsics)
+                foot_3d = deproject_pixel(foot[0], foot[1], foot_d, intrinsics)
+                height_m = float(np.linalg.norm(head_3d - foot_3d))
+                result["height_m"] = height_m
+                result["head_3d"] = head_3d
+                result["foot_3d"] = foot_3d
+        except Exception:
+            pass  # deprojection falhou silenciosamente; usa métricas 2D normalmente
+
+    return result

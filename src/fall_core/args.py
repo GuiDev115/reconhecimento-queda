@@ -37,4 +37,6 @@ def parse_args():
     parser.add_argument("--control-cooldown-seconds", type=float, default=8.0, help="Cooldown minimo entre comandos de notificacao da central de controle.")
     parser.add_argument("--fall-min-confidence", type=float, default=0.5, help="Confianca minima para a central acionar notificacao de queda.")
     parser.add_argument("--fall-clip-seconds", type=float, default=5.0, help="Duracao do clipe (em segundos) salvo ao confirmar uma queda.")
+    parser.add_argument("--disable-imu", action="store_true", help="Desativa leitura do IMU da RealSense (acelerometro/giroscopio).")
+    parser.add_argument("--imu-gyro-threshold", type=float, default=0.08, help="Magnitude minima do giroscopio (rad/s) para considerar camera em movimento.")
     return parser.parse_args()

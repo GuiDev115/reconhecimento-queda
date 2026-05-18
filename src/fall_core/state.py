@@ -1,5 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Optional
 
 import numpy as np
 
@@ -36,3 +37,14 @@ class RuntimeState:
     smooth_hip_center_y: float = None
     smooth_aspect_ratio: float = None
     smooth_height_ratio: float = None
+
+    # IMU (acelerômetro + giroscópio D435i)
+    camera_pitch_deg: float = 0.0
+    camera_roll_deg: float = 0.0
+    camera_moving: bool = False
+    camera_suppress_frames: int = 0
+    gyro_history: deque = field(default_factory=lambda: deque(maxlen=10))
+    accel_smooth: Optional[np.ndarray] = None
+
+    # Referência 3D (altura real em metros via intrínsecas)
+    standing_height_m: Optional[float] = None

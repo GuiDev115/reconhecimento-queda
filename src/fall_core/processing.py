@@ -1,6 +1,6 @@
 import numpy as np
 
-from fall_core.vision import depth_person_metrics, ema, estimate_depth_skeleton
+from fall_core.vision import compute_camera_orientation, depth_person_metrics, ema, estimate_depth_skeleton
 
 
 def resolve_detector_mode(args, capture_mode):
@@ -9,7 +9,7 @@ def resolve_detector_mode(args, capture_mode):
     return args.detector
 
 
-def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2):
+def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2, imu_data=None, intrinsics=None):
     center_y = np.nan
     center_x = np.nan
     aspect_ratio = np.nan
@@ -19,18 +19,51 @@ def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2):
     is_falling_this_frame = False
     depth_mask = None
 
+    _empty = {
+        "center_y": center_y,
+        "center_x": center_x,
+        "aspect_ratio": aspect_ratio,
+        "height_ratio": height_ratio,
+        "person_depth_m": person_depth_m,
+        "depth_text": depth_text,
+        "is_falling_this_frame": False,
+        "depth_mask": depth_mask,
+    }
+
+    # --- Atualização IMU ---
+    imu_enabled = imu_data is not None and not getattr(args, "disable_imu", False)
+    if imu_enabled:
+        # Suaviza acelerômetro com EMA lenta (alpha=0.1); orientação muda devagar
+        if state.accel_smooth is None:
+            state.accel_smooth = imu_data["accel"].copy()
+        else:
+            state.accel_smooth = 0.9 * state.accel_smooth + 0.1 * imu_data["accel"]
+        state.camera_pitch_deg, state.camera_roll_deg = compute_camera_orientation(state.accel_smooth)
+
+        # Detecta movimento da câmera via magnitude do giroscópio
+        gyro_mag = float(np.linalg.norm(imu_data["gyro"]))
+        state.gyro_history.append(gyro_mag)
+        if len(state.gyro_history) >= 3 and float(np.mean(state.gyro_history)) > args.imu_gyro_threshold:
+            state.camera_moving = True
+            state.camera_suppress_frames = 30  # ~1s a 30fps
+            # Invalida referência de altura (câmera pode ter mudado de posição)
+            state.standing_height_ref = None
+            state.standing_height_m = None
+            state.upright_frames = 0
+
+    # Suprime detecção durante/após movimento da câmera
+    if state.camera_suppress_frames > 0:
+        state.camera_suppress_frames -= 1
+        if state.camera_suppress_frames == 0:
+            state.camera_moving = False
+        return _empty
+
     metrics, depth_mask = depth_person_metrics(depth_frame, depth_scale)
     if metrics is None:
-        return {
-            "center_y": center_y,
-            "center_x": center_x,
-            "aspect_ratio": aspect_ratio,
-            "height_ratio": height_ratio,
-            "person_depth_m": person_depth_m,
-            "depth_text": depth_text,
-            "is_falling_this_frame": is_falling_this_frame,
-            "depth_mask": depth_mask,
-        }
+        return {**_empty, "depth_mask": depth_mask}
+
+    # Injeta depth_scale nas métricas para uso na deprojection dentro de estimate_depth_skeleton
+    metrics["depth_scale"] = depth_scale
 
     x, y, bw, bh = metrics["bbox"]
     center_y = metrics["center_y"]
@@ -42,12 +75,25 @@ def process_depth_mode(frame, depth_frame, depth_scale, args, state, cv2):
     if not np.isnan(person_depth_m):
         depth_text = f"{person_depth_m:.2f} m"
 
-    skeleton = estimate_depth_skeleton(metrics, depth_mask)
+    skeleton = estimate_depth_skeleton(
+        metrics, depth_mask,
+        depth_frame=depth_frame,
+        intrinsics=intrinsics,
+        camera_pitch_deg=state.camera_pitch_deg,
+    )
     angle_deg = np.nan
     hip_center_y = center_y
     if skeleton is not None:
-        angle_deg = skeleton["angle_deg"]
+        # Usa ângulo corrigido pelo pitch da câmera para detecção
+        angle_deg = skeleton["angle_corrected_deg"]
         hip_center_y = skeleton["hip"][1] / max(frame.shape[0], 1)
+
+        # Atualiza referência de altura em metros quando disponível
+        if skeleton["height_m"] is not None and skeleton["height_m"] > 0.3:
+            if state.standing_height_m is None:
+                state.standing_height_m = skeleton["height_m"]
+            else:
+                state.standing_height_m = 0.95 * state.standing_height_m + 0.05 * skeleton["height_m"]
 
         cv2.circle(frame, skeleton["head"], 4, (0, 255, 255), -1)
         cv2.circle(frame, skeleton["hip"], 4, (0, 255, 255), -1)
@@ -255,7 +301,12 @@ def update_fall_state(state, is_falling_this_frame, current_time):
 
 
 def build_hud_lines(capture_mode, detector_mode, depth_text, center_y_hist, angle_hist, aspect_ratio, height_ratio, state, show_fall_alert=False):
-    if show_fall_alert or state.fall_detected:
+    if state.camera_moving or state.camera_suppress_frames > 0:
+        status_text = "CAMERA EM MOVIMENTO – aguardando..."
+        status_color = (0, 200, 255)
+        status_scale = 0.9
+        status_thickness = 2
+    elif show_fall_alert or state.fall_detected:
         status_text = "ALERTA: QUEDA DETECTADA!"
         status_color = (0, 0, 255)
         status_scale = 1.0
@@ -270,6 +321,9 @@ def build_hud_lines(capture_mode, detector_mode, depth_text, center_y_hist, angl
         status_color = (0, 255, 0)
         status_scale = 0.9
         status_thickness = 2
+
+    height_m_text = f"{state.standing_height_m:.2f}m" if state.standing_height_m else "n/d"
+    imu_text = f"IMU pitch:{state.camera_pitch_deg:.1f} roll:{state.camera_roll_deg:.1f} h3d:{height_m_text}"
 
     return [
         (status_text, status_color, status_scale, status_thickness),
@@ -295,4 +349,5 @@ def build_hud_lines(capture_mode, detector_mode, depth_text, center_y_hist, angl
             0.58,
             1,
         ),
+        (imu_text, (180, 220, 180), 0.55, 1),
     ]

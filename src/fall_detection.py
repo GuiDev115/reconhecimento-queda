@@ -19,7 +19,7 @@ except Exception as exc:
     MEDIAPIPE_IMPORT_ERROR = exc
 
 from fall_core.args import parse_args
-from fall_core.camera import read_frame, release_capture, start_capture
+from fall_core.camera import get_depth_intrinsics, read_frame, release_capture, start_capture
 from fall_core.events import handle_confirmed_fall, initialize_json
 from fall_core.processing import (
     build_hud_lines,
@@ -56,6 +56,9 @@ def main():
         pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     state = RuntimeState()
+    intrinsics = get_depth_intrinsics(capture_ctx)
+    if intrinsics:
+        print(f"Intrinsecos depth: fx={intrinsics['fx']:.1f} fy={intrinsics['fy']:.1f}")
     capture_fps = args.rs_fps if capture_ctx["mode"] == "realsense" else capture_ctx["cap"].get(cv2.CAP_PROP_FPS)
     if not capture_fps or capture_fps <= 0:
         capture_fps = 30.0
@@ -76,7 +79,7 @@ def main():
 
     try:
         while True:
-            ret, frame, depth_frame = read_frame(capture_ctx)
+            ret, frame, depth_frame, imu_data = read_frame(capture_ctx)
             if not ret:
                 print("Nao foi possivel acessar a camera.")
                 break
@@ -97,7 +100,11 @@ def main():
             }
 
             if detector_mode in {"depth", "skeleton"} and depth_frame is not None:
-                result = process_depth_mode(frame, depth_frame, capture_ctx["depth_scale"], args, state, cv2)
+                result = process_depth_mode(
+                    frame, depth_frame, capture_ctx["depth_scale"], args, state, cv2,
+                    imu_data=imu_data,
+                    intrinsics=intrinsics,
+                )
             elif detector_mode == "mediapipe":
                 result = process_mediapipe_mode(frame, pose, mp_pose, mp_drawing, args, state, cv2)
 
