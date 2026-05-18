@@ -13,18 +13,36 @@ def start_webcam_capture(camera_index, cv2):
     return {"mode": "webcam", "cap": cap}
 
 
+def _try_start_pipeline(pipeline, config):
+    """Tenta iniciar o pipeline; retorna profile ou lança RuntimeError."""
+    return pipeline.start(config)
+
+
 def start_realsense_capture(width, height, fps):
     if rs is None:
         raise RuntimeError("Pacote 'pyrealsense2' nao instalado. Instale para usar a RealSense.")
 
+    def _build_video_config(cfg):
+        cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
+        cfg.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
+
+    # Tenta primeiro com IMU (D435i); se falhar, usa apenas vídeo+depth
+    has_imu = True
     pipeline = rs.pipeline()
     config = rs.config()
-    config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
-    config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
-    # Streams IMU do D435i (acelerômetro 250 Hz, giroscópio 400 Hz)
+    _build_video_config(config)
     config.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 250)
     config.enable_stream(rs.stream.gyro,  rs.format.motion_xyz32f, 400)
-    profile = pipeline.start(config)
+    try:
+        profile = _try_start_pipeline(pipeline, config)
+    except RuntimeError:
+        has_imu = False
+        print("IMU nao disponivel neste dispositivo. Continuando sem acelerometro/giroscopio.")
+        pipeline = rs.pipeline()
+        config = rs.config()
+        _build_video_config(config)
+        profile = _try_start_pipeline(pipeline, config)
+
     align = rs.align(rs.stream.color)
     depth_sensor = profile.get_device().first_depth_sensor()
     depth_scale = depth_sensor.get_depth_scale()
@@ -35,6 +53,7 @@ def start_realsense_capture(width, height, fps):
         "align": align,
         "depth_scale": depth_scale,
         "profile": profile,
+        "has_imu": has_imu,
     }
 
 
@@ -58,10 +77,13 @@ def read_frame(capture_ctx):
 
     frames = capture_ctx["pipeline"].wait_for_frames()
 
-    # Leitura IMU do frameset original (antes do align — motion frames não são afetados por align)
+    # Leitura IMU do frameset original (apenas se o dispositivo tem IMU habilitado)
     imu_data = None
-    accel_f = frames.first_or_default(rs.stream.accel, rs.format.motion_xyz32f)
-    gyro_f  = frames.first_or_default(rs.stream.gyro,  rs.format.motion_xyz32f)
+    if capture_ctx.get("has_imu", False):
+        accel_f = frames.first_or_default(rs.stream.accel, rs.format.motion_xyz32f)
+        gyro_f  = frames.first_or_default(rs.stream.gyro,  rs.format.motion_xyz32f)
+    else:
+        accel_f = gyro_f = None
     if accel_f and gyro_f:
         a = accel_f.as_motion_frame().get_motion_data()
         g = gyro_f.as_motion_frame().get_motion_data()

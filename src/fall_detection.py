@@ -57,8 +57,12 @@ def main():
 
     state = RuntimeState()
     intrinsics = get_depth_intrinsics(capture_ctx)
-    if intrinsics:
-        print(f"Intrinsecos depth: fx={intrinsics['fx']:.1f} fy={intrinsics['fy']:.1f}")
+    if capture_ctx.get("has_imu"):
+        print("IMU ativo: acelerometro + giroscopio habilitados.")
+        if intrinsics:
+            print(f"Intrinsecos depth: fx={intrinsics['fx']:.1f} fy={intrinsics['fy']:.1f}")
+    elif capture_ctx["mode"] == "realsense":
+        print("IMU indisponivel neste dispositivo. Deteccao por visao apenas.")
     capture_fps = args.rs_fps if capture_ctx["mode"] == "realsense" else capture_ctx["cap"].get(cv2.CAP_PROP_FPS)
     if not capture_fps or capture_fps <= 0:
         capture_fps = 30.0
